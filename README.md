@@ -1,3 +1,7 @@
+<h1 align="center">
+	<img width="128" src="https://github.com/denyzhirkov/store3/raw/__image__/3.png" alt="Chalk">
+	<br>
+</h1>
 
 # Store3
 
