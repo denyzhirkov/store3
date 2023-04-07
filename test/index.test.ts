@@ -63,7 +63,7 @@ describe('Store3', () => {
       const store = new Store3();
       store.set('a', 1);
 
-      expect(store.$.a).toBe(1);
+      expect((store.$ as {a: number}).a).toBe(1);
     });
   });
 
@@ -156,6 +156,37 @@ describe('Store3', () => {
       store.set('a', 2);
 
       expect(called).toBe(1);
+    });
+  });
+
+  describe('Bind usage', () => {
+    test('should bind a calculated value to a key', () => {
+      const store = new Store3({
+        a: 1,
+        b: 2,
+      });
+
+      store.bind('c', ($) => {
+        return $.a! + $.b!;
+      });
+
+      expect((store.$ as {a: number, b: number, c: number}).c).toBe(3);
+    });
+    test('should bind a calculated value to a key and update it when a dependency changes', () => {
+      const store = new Store3({
+        a: 1,
+        b: 2,
+      });
+
+      store.bind('c', ($) => {
+        return $.a! + $.b!;
+      });
+
+      expect((store.$ as {a: number, b: number, c: number}).c).toBe(3);
+
+      store.set('a', 2);
+
+      expect((store.$ as {a: number, b: number, c: number}).c).toBe(4);
     });
   });
 });
