@@ -7,7 +7,7 @@ export type Callback<T, P> = (
 export type ItemOptions = {
   silent?: boolean;
   clone?: boolean;
-}
+};
 
 export type Item<T, P> = {
   value: T | undefined;
@@ -23,19 +23,22 @@ export type $Getter<T> = {
 };
 
 export interface Sub<T> {
-  <K extends keyof T>(
-    key: K,
-    callback: Callback<T[K], T>
-  ): () => void;
+  <K extends keyof T>(key: K, callback: Callback<T[K], T>): () => void;
 }
 
 export interface StoreThree<T extends Record<string, any> = {}> {
   get<K extends keyof T>(key: K): T[K] | undefined;
-  set<A extends string, B extends unknown>(key: A, value: B): StoreThree<
-    T & { [key in A]: B }
-  > & { subscribe: Sub<T & { [key in A]: B }> };
+  set<A extends string, B extends unknown>(
+    key: A,
+    value: B
+  ): StoreThree<T & { [key in A]: B }> & {
+    subscribe: Sub<T & { [key in A]: B }>;
+  };
   unset(key: string): this;
-  bind<B extends unknown>(key: string, binder: ($: $Getter<T>) => B): StoreThree<T>;
+  bind<B extends unknown>(
+    key: string,
+    binder: ($: $Getter<T>) => B
+  ): StoreThree<T>;
   subscribe: Sub<T>;
   $: $Getter<T>;
 }
@@ -45,7 +48,8 @@ const defaultItemOptions: ItemOptions = {
   clone: false,
 };
 
-export default class Store3<T extends Record<string, any> = {}> implements StoreThree {
+export default class Store3<T extends Record<string, any> = {}>
+  implements StoreThree {
   private store: StoreType<T> = {} as StoreType<T>;
   $: $Getter<T> = {} as $Getter<T>;
 
@@ -69,7 +73,7 @@ export default class Store3<T extends Record<string, any> = {}> implements Store
   }
 
   constructor(defaultStore: T = {} as T) {
-    Object.keys(defaultStore).forEach((key) => {
+    Object.keys(defaultStore).forEach(key => {
       this.store[key as keyof T] = {
         value: defaultStore[key as keyof T],
         callbacks: [],
@@ -87,19 +91,23 @@ export default class Store3<T extends Record<string, any> = {}> implements Store
     key: A,
     value: B,
     options: ItemOptions = defaultItemOptions
-  ): StoreThree<T & { [key in A]: B }> & { subscribe: Sub<T & { [key in A]: B }> } {
+  ): StoreThree<T & { [key in A]: B }> & {
+    subscribe: Sub<T & { [key in A]: B }>;
+  } {
     const prevValue = this.store[key]?.value;
     this.store[key] = this.store[key] || { value: undefined, callbacks: [] };
     const storeRef = this.store[key] as Item<B, T & { [key in A]: B }>;
     storeRef.value = options?.clone ? structuredClone(value) : value;
     this.createGetter(key);
     if (!options?.silent) {
-      storeRef.callbacks.forEach((callback) =>
+      storeRef.callbacks.forEach(callback =>
         callback(value, prevValue, this.$)
       );
     }
 
-    return this as StoreThree<T & { [key in A]: B }> & { subscribe: Sub<T & { [key in A]: B }> };
+    return this as StoreThree<T & { [key in A]: B }> & {
+      subscribe: Sub<T & { [key in A]: B }>;
+    };
   }
 
   unset(key: string) {
@@ -108,10 +116,7 @@ export default class Store3<T extends Record<string, any> = {}> implements Store
     return this;
   }
 
-  bind<B extends unknown>(
-    key: string,
-    binder: ($: $Getter<T>) => B,
-  ) {
+  bind<B extends unknown>(key: string, binder: ($: $Getter<T>) => B) {
     this.createBinder<B>(key, binder);
     return this;
   }
@@ -124,7 +129,7 @@ export default class Store3<T extends Record<string, any> = {}> implements Store
     this.store[key].callbacks.push(callback);
     return () => {
       this.store[key].callbacks = this.store[key].callbacks.filter(
-        (cb) => cb !== callback
+        cb => cb !== callback
       );
     };
   }
