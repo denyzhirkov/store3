@@ -1,3 +1,7 @@
+export type $Getter<T> = {
+  [K in keyof T]: T[K] | undefined;
+};
+
 export type Callback<T, P> = (
   value: T,
   prevValue: T | undefined,
@@ -16,10 +20,6 @@ export type Item<T, P> = {
 
 export type StoreType<T> = {
   [K in keyof T]: Item<T[K], T>;
-};
-
-export type $Getter<T> = {
-  [K in keyof T]: T[K] | undefined;
 };
 
 export interface Sub<T> {
@@ -51,23 +51,27 @@ const defaultItemOptions: ItemOptions = {
 export default class Store3<T extends Record<string, any> = {}>
   implements StoreThree {
   private store: StoreType<T> = {} as StoreType<T>;
+
   $: $Getter<T> = {} as $Getter<T>;
 
   private createBinder<B extends unknown>(
     key: string,
     binder: ($: $Getter<T>) => B
   ) {
+    if (this.$.hasOwnProperty(key)) {
+      delete this.$[key];
+    }
     Object.defineProperty(this.$, key, {
       get: () => binder!(this.$) as B,
     });
   }
 
-  private createGetter(key: string): void {
+  private createGetter(key: keyof T): void {
     if (!this.$.hasOwnProperty(key)) {
       Object.defineProperty(this.$, key, {
         get: () => (this.store[key] ? this.store[key].value : undefined),
-        configurable: false,
         enumerable: true,
+        configurable: true,
       });
     }
   }
@@ -82,12 +86,11 @@ export default class Store3<T extends Record<string, any> = {}>
     });
   }
 
-  get<B>(key: string): B;
   get<K extends keyof T>(key: K): T[K] | undefined {
     return this.store[key] ? this.store[key].value : undefined;
   }
 
-  set<A extends string, B>(
+  set<A extends keyof T, B>(
     key: A,
     value: B,
     options: ItemOptions = defaultItemOptions
@@ -110,7 +113,7 @@ export default class Store3<T extends Record<string, any> = {}>
     };
   }
 
-  unset(key: string) {
+  unset<A extends keyof T>(key: A) {
     delete this.store[key];
     delete this.$.key;
     return this;

@@ -22,7 +22,9 @@ describe('Store3', () => {
       expect(store.get('a')).toBe(2);
     });
     test('should set a value using set', () => {
-      const store = new Store3();
+      const store = new Store3({
+        a: null,
+      });
       store.set('a', 1);
 
       expect(store.get('a')).toBe(1);
@@ -60,7 +62,9 @@ describe('Store3', () => {
       expect(store.$.b).toBe(2);
     });
     test('should create getters for keys created using set', () => {
-      const store = new Store3();
+      const store = new Store3({
+        a: null as null | number,
+      });
       store.set('a', 1);
 
       expect((store.$ as { a: number }).a).toBe(1);
