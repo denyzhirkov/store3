@@ -28,13 +28,13 @@ export interface Sub<T> {
 
 export interface StoreThree<T extends Record<string, any> = {}> {
   get<K extends keyof T>(key: K): T[K] | undefined;
-  set<A extends string, B extends unknown>(
+  set<A extends string, B>(
     key: A,
     value: B
   ): StoreThree<T & { [key in A]: B }> & {
     subscribe: Sub<T & { [key in A]: B }>;
   };
-  unset(key: string): this;
+  unset<K extends keyof T>(key: K): this;
   bind<B extends unknown>(
     key: string,
     binder: ($: $Getter<T>) => B
@@ -49,7 +49,7 @@ const defaultItemOptions: ItemOptions = {
 };
 
 export default class Store3<T extends Record<string, any> = {}>
-  implements StoreThree {
+  implements StoreThree<T> {
   private store: StoreType<T> = {} as StoreType<T>;
 
   $: $Getter<T> = {} as $Getter<T>;
@@ -57,12 +57,12 @@ export default class Store3<T extends Record<string, any> = {}>
   private createBinder<B extends unknown>(
     key: string,
     binder: ($: $Getter<T>) => B
-  ) {
+  ): void {
     if (this.$.hasOwnProperty(key)) {
       delete this.$[key];
     }
     Object.defineProperty(this.$, key, {
-      get: () => binder!(this.$) as B,
+      get: () => binder(this.$) as B,
     });
   }
 
@@ -90,16 +90,19 @@ export default class Store3<T extends Record<string, any> = {}>
     return this.store[key] ? this.store[key].value : undefined;
   }
 
-  set<A extends keyof T, B>(
+  set<A extends string, B>(
     key: A,
     value: B,
     options: ItemOptions = defaultItemOptions
   ): StoreThree<T & { [key in A]: B }> & {
     subscribe: Sub<T & { [key in A]: B }>;
   } {
-    const prevValue = this.store[key]?.value;
-    this.store[key] = this.store[key] || { value: undefined, callbacks: [] };
-    const storeRef = this.store[key] as Item<B, T & { [key in A]: B }>;
+    const prevValue = (this.store as any)[key]?.value;
+    (this.store as any)[key] =
+      (this.store as any)[key] || { value: undefined, callbacks: [] };
+    const storeRef = (this.store as any)[
+      key
+    ] as Item<B, T & { [key in A]: B }>;
     storeRef.value = options?.clone ? structuredClone(value) : value;
     this.createGetter(key);
     if (!options?.silent) {
@@ -113,13 +116,13 @@ export default class Store3<T extends Record<string, any> = {}>
     };
   }
 
-  unset<A extends keyof T>(key: A) {
+  unset<K extends keyof T>(key: K): this {
     delete this.store[key];
-    delete this.$.key;
+    delete this.$[key];
     return this;
   }
 
-  bind<B extends unknown>(key: string, binder: ($: $Getter<T>) => B) {
+  bind<B extends unknown>(key: string, binder: ($: $Getter<T>) => B): this {
     this.createBinder<B>(key, binder);
     return this;
   }
