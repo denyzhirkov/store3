@@ -193,4 +193,52 @@ describe('Store3', () => {
       expect((store.$ as { a: number; b: number; c: number }).c).toBe(4);
     });
   });
+  describe('Advanced usage', () => {
+    test('should allow adding new keys dynamically (Builder pattern)', () => {
+      const store = new Store3({ a: 1 }).set('b', 2);
+      expect(store.get('b')).toBe(2);
+      expect(store.$.b).toBe(2);
+    });
+
+    test('should allow adding new keys dynamically (Loose typing)', () => {
+      const store = new Store3<Record<string, any>>({ a: 1 });
+      store.set('b', 2);
+      expect(store.get('b')).toBe(2);
+      expect(store.$.b).toBe(2);
+    });
+
+    test('should clone values when clone option is true', () => {
+      const original = { nested: { count: 1 } };
+      const store = new Store3({ data: original });
+
+      // Update with clone: true
+      const newData = { nested: { count: 2 } };
+      store.set('data', newData, { clone: true });
+
+      // Modify newData, store should not change
+      newData.nested.count = 3;
+      expect(store.get('data')?.nested.count).toBe(2);
+    });
+
+    test('should not trigger callbacks when silent option is true', () => {
+      const store = new Store3({ a: 1 });
+      let called = false;
+      store.subscribe('a', () => {
+        called = true;
+      });
+
+      store.set('a', 2, { silent: true });
+      expect(called).toBe(false);
+      expect(store.get('a')).toBe(2);
+    });
+
+    test('should completely remove key from getter on unset', () => {
+      const store = new Store3({ a: 1 });
+      expect('a' in store.$).toBe(true);
+
+      store.unset('a');
+      expect('a' in store.$).toBe(false);
+      expect(store.get('a')).toBeUndefined();
+    });
+  });
 });

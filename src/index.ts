@@ -1,3 +1,5 @@
+declare var structuredClone: any;
+
 export type $Getter<T> = {
   [K in keyof T]: T[K] | undefined;
 };
@@ -48,8 +50,15 @@ const defaultItemOptions: ItemOptions = {
   clone: false,
 };
 
+const cloneValue = <T>(value: T): T => {
+  if (typeof structuredClone === 'function') {
+    return structuredClone(value);
+  }
+  return JSON.parse(JSON.stringify(value));
+};
+
 export default class Store3<T extends Record<string, any> = {}>
-  implements StoreThree {
+  implements StoreThree<T> {
   private store: StoreType<T> = {} as StoreType<T>;
 
   $: $Getter<T> = {} as $Getter<T>;
@@ -66,10 +75,10 @@ export default class Store3<T extends Record<string, any> = {}>
     });
   }
 
-  private createGetter(key: keyof T): void {
+  private createGetter(key: string): void {
     if (!this.$.hasOwnProperty(key)) {
       Object.defineProperty(this.$, key, {
-        get: () => (this.store[key] ? this.store[key].value : undefined),
+        get: () => (this.store[key as keyof T] ? this.store[key as keyof T].value : undefined),
         enumerable: true,
         configurable: true,
       });
@@ -82,7 +91,7 @@ export default class Store3<T extends Record<string, any> = {}>
         value: defaultStore[key as keyof T],
         callbacks: [],
       };
-      this.createGetter(key);
+      this.createGetter(key as string);
     });
   }
 
@@ -90,32 +99,33 @@ export default class Store3<T extends Record<string, any> = {}>
     return this.store[key] ? this.store[key].value : undefined;
   }
 
-  set<A extends keyof T, B>(
+  set<A extends string, B>(
     key: A,
     value: B,
     options: ItemOptions = defaultItemOptions
   ): StoreThree<T & { [key in A]: B }> & {
     subscribe: Sub<T & { [key in A]: B }>;
   } {
-    const prevValue = this.store[key]?.value;
-    this.store[key] = this.store[key] || { value: undefined, callbacks: [] };
-    const storeRef = this.store[key] as Item<B, T & { [key in A]: B }>;
-    storeRef.value = options?.clone ? structuredClone(value) : value;
+    const prevValue = this.store[key as keyof T]?.value;
+    const store = this.store as Record<string, any>;
+    store[key] = store[key] || { value: undefined, callbacks: [] };
+    const storeRef = store[key];
+    storeRef.value = options?.clone ? cloneValue(value) : value;
     this.createGetter(key);
     if (!options?.silent) {
-      storeRef.callbacks.forEach(callback =>
+      storeRef.callbacks.forEach((callback: any) =>
         callback(value, prevValue, this.$)
       );
     }
 
-    return this as StoreThree<T & { [key in A]: B }> & {
+    return this as unknown as StoreThree<T & { [key in A]: B }> & {
       subscribe: Sub<T & { [key in A]: B }>;
     };
   }
 
-  unset<A extends keyof T>(key: A) {
-    delete this.store[key];
-    delete this.$.key;
+  unset(key: string) {
+    delete this.store[key as keyof T];
+    delete this.$[key];
     return this;
   }
 

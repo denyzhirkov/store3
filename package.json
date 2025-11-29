@@ -36,7 +36,7 @@
     "trailingComma": "es5"
   },
   "name": "store3",
-  "author": "Denis Zhirkov",
+  "author": "denyzhirkov@gmail.com",
   "module": "dist/store3.esm.js",
   "size-limit": [
     {
