@@ -241,4 +241,86 @@ describe('Store3', () => {
       expect(store.get('a')).toBeUndefined();
     });
   });
+  describe('Batch updates', () => {
+    test('should batch updates and call subscribers only once', () => {
+      const store = new Store3({ a: 1 });
+      let callCount = 0;
+      let lastValue: number | undefined;
+      let lastPrevValue: number | undefined;
+
+      store.subscribe('a', (val, prev) => {
+        callCount++;
+        lastValue = val;
+        lastPrevValue = prev;
+      });
+
+      store.batch(() => {
+        store.set('a', 2);
+        store.set('a', 3);
+        store.set('a', 4);
+      });
+
+      expect(callCount).toBe(1);
+      expect(lastValue).toBe(4);
+      expect(lastPrevValue).toBe(1);
+    });
+
+    test('should handle multiple keys in batch', () => {
+      const store = new Store3({ a: 1, b: 2 });
+      let aCalls = 0;
+      let bCalls = 0;
+
+      store.subscribe('a', () => aCalls++);
+      store.subscribe('b', () => bCalls++);
+
+      store.batch(() => {
+        store.set('a', 10);
+        store.set('b', 20);
+      });
+
+      expect(aCalls).toBe(1);
+      expect(bCalls).toBe(1);
+      expect(store.get('a')).toBe(10);
+      expect(store.get('b')).toBe(20);
+    });
+
+    test('should handle chained computed values', () => {
+      const store = new Store3<Record<string, any>>({ a: 1 });
+      store.computed('double', $ => $.a * 2);
+      store.computed('quadruple', $ => $.double * 2);
+
+      expect(store.get('quadruple')).toBe(4);
+
+      store.set('a', 3);
+      expect(store.get('double')).toBe(6);
+      expect(store.get('quadruple')).toBe(12);
+    });
+
+    test('should handle dynamic dependencies', () => {
+      const store = new Store3<Record<string, any>>({ a: 1, b: 2, useA: true });
+      // If useA is true, depends on a. If false, depends on b.
+      store.computed('dynamic', $ => ($.useA ? $.a : $.b));
+
+      expect(store.get('dynamic')).toBe(1);
+
+      // Change a, should update
+      store.set('a', 10);
+      expect(store.get('dynamic')).toBe(10);
+
+      // Switch to b
+      store.set('useA', false);
+      expect(store.get('dynamic')).toBe(2);
+
+      // Change a, should NOT update dynamic (because it depends on b now)
+      let called = false;
+      store.subscribe('dynamic', () => { called = true; });
+      store.set('a', 20);
+      expect(called).toBe(false);
+      expect(store.get('dynamic')).toBe(2);
+
+      // Change b, should update
+      store.set('b', 30);
+      expect(store.get('dynamic')).toBe(30);
+    });
+  });
 });

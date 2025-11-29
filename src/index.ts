@@ -43,6 +43,8 @@ export interface StoreThree<T extends Record<string, any> = {}> {
   ): StoreThree<T>;
   subscribe: Sub<T>;
   $: $Getter<T>;
+  batch(fn: () => void): void;
+  computed<K>(key: string, computer: ($: $Getter<T>) => K): StoreThree<T>;
 }
 
 const defaultItemOptions: ItemOptions = {
@@ -62,6 +64,15 @@ export default class Store3<T extends Record<string, any> = {}>
   private store: StoreType<T> = {} as StoreType<T>;
 
   $: $Getter<T> = {} as $Getter<T>;
+  private batchDepth = 0;
+  private pendingCallbacks = new Map<
+    Callback<any, any>,
+    [any, any, $Getter<T>]
+  >();
+  private currentlyComputing: string | null = null;
+  private computedComputers = new Map<string, ($: $Getter<T>) => any>();
+  private computedDependencies = new Map<string, Set<string>>();
+  private dependents = new Map<string, Set<string>>();
 
   private createBinder<B extends unknown>(
     key: string,
@@ -78,7 +89,23 @@ export default class Store3<T extends Record<string, any> = {}>
   private createGetter(key: string): void {
     if (!this.$.hasOwnProperty(key)) {
       Object.defineProperty(this.$, key, {
-        get: () => (this.store[key as keyof T] ? this.store[key as keyof T].value : undefined),
+        get: () => {
+          if (this.currentlyComputing) {
+            const dependent = this.currentlyComputing;
+            if (!this.computedDependencies.has(dependent)) {
+              this.computedDependencies.set(dependent, new Set());
+            }
+            this.computedDependencies.get(dependent)!.add(key);
+
+            if (!this.dependents.has(key)) {
+              this.dependents.set(key, new Set());
+            }
+            this.dependents.get(key)!.add(dependent);
+          }
+          return this.store[key as keyof T]
+            ? this.store[key as keyof T].value
+            : undefined;
+        },
         enumerable: true,
         configurable: true,
       });
@@ -112,10 +139,30 @@ export default class Store3<T extends Record<string, any> = {}>
     const storeRef = store[key];
     storeRef.value = options?.clone ? cloneValue(value) : value;
     this.createGetter(key);
+    this.createGetter(key);
     if (!options?.silent) {
-      storeRef.callbacks.forEach((callback: any) =>
-        callback(value, prevValue, this.$)
-      );
+      if (this.batchDepth > 0) {
+        storeRef.callbacks.forEach((callback: any) => {
+          if (this.pendingCallbacks.has(callback)) {
+            const [, firstPrevValue] = this.pendingCallbacks.get(callback)!;
+            this.pendingCallbacks.set(callback, [
+              value,
+              firstPrevValue,
+              this.$,
+            ]);
+          } else {
+            this.pendingCallbacks.set(callback, [value, prevValue, this.$]);
+          }
+        });
+      } else {
+        storeRef.callbacks.forEach((callback: any) =>
+          callback(value, prevValue, this.$)
+        );
+      }
+    }
+
+    if (this.dependents.has(key)) {
+      this.dependents.get(key)!.forEach(dependent => this.recompute(dependent));
     }
 
     return this as unknown as StoreThree<T & { [key in A]: B }> & {
@@ -145,5 +192,57 @@ export default class Store3<T extends Record<string, any> = {}>
         cb => cb !== callback
       );
     };
+  }
+
+  batch(fn: () => void) {
+    this.batchDepth++;
+    try {
+      fn();
+    } finally {
+      this.batchDepth--;
+    }
+    if (this.batchDepth === 0) {
+      this.flushCallbacks();
+    }
+  }
+
+  private flushCallbacks() {
+    this.pendingCallbacks.forEach(([value, prevValue, $], callback) => {
+      callback(value, prevValue, $);
+    });
+    this.pendingCallbacks.clear();
+  }
+
+  computed<K>(key: string, computer: ($: $Getter<T>) => K) {
+    this.computedComputers.set(key, computer);
+    this.recompute(key);
+    return this;
+  }
+
+  private recompute(key: string) {
+    const computer = this.computedComputers.get(key);
+    if (!computer) return;
+
+    // Cleanup old dependencies
+    if (this.computedDependencies.has(key)) {
+      this.computedDependencies.get(key)!.forEach(dep => {
+        if (this.dependents.has(dep)) {
+          this.dependents.get(dep)!.delete(key);
+        }
+      });
+      this.computedDependencies.get(key)!.clear();
+    }
+
+    this.currentlyComputing = key;
+    try {
+      const value = computer(this.$);
+      // We use set to update the value and trigger downstream updates/subscriptions
+      // We might want to avoid infinite loops if the value hasn't changed,
+      // but for now we rely on set logic.
+      // We pass silent: false so subscribers to the computed value get notified.
+      this.set(key, value);
+    } finally {
+      this.currentlyComputing = null;
+    }
   }
 }
