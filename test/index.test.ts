@@ -1,4 +1,4 @@
-import Store3 from "../src/index";
+﻿import Store3 from "../src/index";
 
 describe("Store3", () => {
 	describe("Simple usage", () => {

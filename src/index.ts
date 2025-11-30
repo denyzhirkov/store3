@@ -1,4 +1,4 @@
-// biome-ignore lint/suspicious/noExplicitAny: Polyfill check
+﻿// biome-ignore lint/suspicious/noExplicitAny: Polyfill check
 declare var structuredClone: any;
 
 export type $Getter<T> = {
