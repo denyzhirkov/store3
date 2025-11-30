@@ -40,11 +40,17 @@ export interface StoreThree<T extends Record<string, any> = {}> {
 		subscribe: Sub<T & { [key in A]: B }>;
 	};
 	unset(key: string): this;
-	bind<B>(key: string, binder: ($: $Getter<T>) => B): StoreThree<T>;
+	bind<A extends string, B>(
+		key: A,
+		binder: ($: $Getter<T>) => B,
+	): StoreThree<T & { [key in A]: B }>;
 	subscribe: Sub<T>;
 	$: $Getter<T>;
 	batch(fn: () => void): void;
-	computed<K>(key: string, computer: ($: $Getter<T>) => K): StoreThree<T>;
+	computed<A extends string, K>(
+		key: A,
+		computer: ($: $Getter<T>) => K,
+	): StoreThree<T & { [key in A]: K }>;
 	subscribeAll(
 		callback: (
 			key: string,
@@ -84,6 +90,7 @@ export default class Store3<T extends Record<string, any> = {}>
 		[any, any, $Getter<T>]
 	>();
 	private currentlyComputing: string | null = null;
+	private computingStack = new Set<string>();
 	// biome-ignore lint/suspicious/noExplicitAny: Computed return type
 	private computedComputers = new Map<string, ($: $Getter<T>) => any>();
 	private computedDependencies = new Map<string, Set<string>>();
@@ -161,7 +168,6 @@ export default class Store3<T extends Record<string, any> = {}>
 		const storeRef = store[key];
 		storeRef.value = options?.clone ? cloneValue(value) : value;
 		this.createGetter(key);
-		this.createGetter(key);
 		if (!options?.silent) {
 			if (this.batchDepth > 0) {
 				// biome-ignore lint/suspicious/noExplicitAny: Callback type
@@ -222,9 +228,12 @@ export default class Store3<T extends Record<string, any> = {}>
 		return this;
 	}
 
-	bind<B>(key: string, binder: ($: $Getter<T>) => B) {
+	bind<A extends string, B>(
+		key: A,
+		binder: ($: $Getter<T>) => B,
+	): StoreThree<T & { [key in A]: B }> {
 		this.createBinder<B>(key, binder);
-		return this;
+		return this as unknown as StoreThree<T & { [key in A]: B }>;
 	}
 
 	subscribe<K extends keyof T>(
@@ -267,10 +276,13 @@ export default class Store3<T extends Record<string, any> = {}>
 		this.pendingGlobalCallbacks.clear();
 	}
 
-	computed<K>(key: string, computer: ($: $Getter<T>) => K) {
+	computed<A extends string, K>(
+		key: A,
+		computer: ($: $Getter<T>) => K,
+	): StoreThree<T & { [key in A]: K }> {
 		this.computedComputers.set(key, computer);
 		this.recompute(key);
-		return this;
+		return this as unknown as StoreThree<T & { [key in A]: K }>;
 	}
 
 	subscribeAll(
@@ -287,6 +299,13 @@ export default class Store3<T extends Record<string, any> = {}>
 		const computer = this.computedComputers.get(key);
 		if (!computer) return;
 
+		// Check for circular dependencies
+		if (this.computingStack.has(key)) {
+			throw new Error(
+				`Circular dependency detected for computed "${key}". Stack: ${[...this.computingStack].join(" -> ")} -> ${key}`,
+			);
+		}
+
 		// Cleanup old dependencies
 		if (this.computedDependencies.has(key)) {
 			this.computedDependencies.get(key)?.forEach((dep) => {
@@ -298,15 +317,17 @@ export default class Store3<T extends Record<string, any> = {}>
 		}
 
 		this.currentlyComputing = key;
+		this.computingStack.add(key);
 		try {
-			const value = computer(this.$);
-			// We use set to update the value and trigger downstream updates/subscriptions
-			// We might want to avoid infinite loops if the value hasn't changed,
-			// but for now we rely on set logic.
-			// We pass silent: false so subscribers to the computed value get notified.
-			this.set(key, value);
+			const newValue = computer(this.$);
+			const prevValue = this.get(key as keyof T);
+			// Only update if value actually changed to avoid unnecessary subscriber calls
+			if (newValue !== prevValue) {
+				this.set(key, newValue);
+			}
 		} finally {
 			this.currentlyComputing = null;
+			this.computingStack.delete(key);
 		}
 	}
 }

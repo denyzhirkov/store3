@@ -329,6 +329,49 @@ describe("Store3", () => {
 			store.set("b", 30);
 			expect(store.get("dynamic")).toBe(30);
 		});
+
+		test("should throw error on circular computed dependencies", () => {
+			// biome-ignore lint/suspicious/noExplicitAny: Testing circular dependencies
+			const store = new Store3<Record<string, any>>({});
+
+			// Pre-create both keys so getters exist and dependencies can be tracked
+			store.set("a", 0);
+			store.set("b", 0);
+
+			// Now create circular computed: a depends on b, b depends on a
+			store.computed("a", ($) => $.b + 1); // a depends on b
+
+			// When b is created:
+			// 1. recompute("b") reads $.a -> registers b -> a
+			// 2. set("b", value) triggers recompute("a") because dependents["b"] contains "a"
+			// 3. recompute("a") reads $.b -> set("a", value) triggers recompute("b")
+			// 4. recompute("b") but "b" is already in computingStack -> CIRCULAR!
+			expect(() => {
+				store.computed("b", ($) => $.a + 1);
+			}).toThrow(/Circular dependency detected/);
+		});
+
+		test("should not call subscribers when computed value unchanged", () => {
+			// biome-ignore lint/suspicious/noExplicitAny: Testing unchanged computed
+			const store = new Store3<Record<string, any>>({ a: 5, b: 10 });
+			// computed returns constant based on condition
+			store.computed("isPositive", ($) => $.a > 0);
+
+			let callCount = 0;
+			store.subscribe("isPositive", () => {
+				callCount++;
+			});
+
+			// Change 'a' but computed result stays true
+			store.set("a", 3);
+			expect(store.get("isPositive")).toBe(true);
+			expect(callCount).toBe(0); // Should not be called since value didn't change
+
+			// Change 'a' to negative - now result changes
+			store.set("a", -1);
+			expect(store.get("isPositive")).toBe(false);
+			expect(callCount).toBe(1); // Should be called once
+		});
 	});
 
 	describe("Global Subscribe", () => {
@@ -390,6 +433,137 @@ describe("Store3", () => {
 			unsubscribe();
 			store.set("a", 20);
 			expect(callCount).toBe(1);
+		});
+	});
+
+	describe("Type safety", () => {
+		test("should preserve types through chained computed calls", () => {
+			const store = new Store3({ price: 100 })
+				// biome-ignore lint/style/noNonNullAssertion: Test values are known to exist
+				.computed("withTax", ($) => $.price! * 1.2)
+				.computed("formatted", ($) => `$${$.withTax}`);
+
+			expect(store.get("price")).toBe(100);
+			expect(store.get("withTax")).toBe(120);
+			expect(store.get("formatted")).toBe("$120");
+		});
+
+		test("should preserve types through chained bind calls", () => {
+			const store = new Store3({ x: 10, y: 20 })
+				// biome-ignore lint/style/noNonNullAssertion: Test values are known to exist
+				.bind("sum", ($) => $.x! + $.y!)
+				.bind("label", ($) => `Sum: ${$.sum}`);
+
+			expect(store.$.sum).toBe(30);
+			expect(store.$.label).toBe("Sum: 30");
+		});
+
+		test("should handle deeply nested computed dependencies", () => {
+			// biome-ignore lint/suspicious/noExplicitAny: Testing nested deps
+			const store = new Store3<Record<string, any>>({ base: 2 });
+
+			store.computed("level1", ($) => $.base * 2);
+			store.computed("level2", ($) => $.level1 * 2);
+			store.computed("level3", ($) => $.level2 * 2);
+
+			expect(store.get("level1")).toBe(4);
+			expect(store.get("level2")).toBe(8);
+			expect(store.get("level3")).toBe(16);
+
+			// Update base, all levels should update
+			store.set("base", 3);
+			expect(store.get("level1")).toBe(6);
+			expect(store.get("level2")).toBe(12);
+			expect(store.get("level3")).toBe(24);
+		});
+
+		test("should handle self-referencing computed safely", () => {
+			// biome-ignore lint/suspicious/noExplicitAny: Testing self-ref
+			const store = new Store3<Record<string, any>>({ count: 0 });
+
+			// Pre-create the key so getter exists
+			store.set("selfRef", 0);
+
+			// This should throw because 'selfRef' tries to read itself during computation
+			// When recompute("selfRef") runs:
+			// 1. Reads $.selfRef which triggers the getter
+			// 2. The getter sees currentlyComputing = "selfRef" and registers selfRef -> selfRef
+			// 3. After computing, set("selfRef", value) checks dependents
+			// 4. dependents["selfRef"] contains "selfRef", so recompute("selfRef") is called
+			// 5. computingStack already has "selfRef" -> CIRCULAR!
+			expect(() => {
+				store.computed("selfRef", ($) => $.selfRef + 1);
+			}).toThrow(/Circular dependency detected/);
+		});
+	});
+
+	describe("Edge cases", () => {
+		test("should handle undefined values correctly", () => {
+			const store = new Store3<{ a: number | undefined }>({ a: undefined });
+
+			expect(store.get("a")).toBeUndefined();
+			expect(store.$.a).toBeUndefined();
+
+			store.set("a", 42);
+			expect(store.get("a")).toBe(42);
+
+			store.set("a", undefined);
+			expect(store.get("a")).toBeUndefined();
+		});
+
+		test("should handle null values correctly", () => {
+			const store = new Store3<{ a: number | null }>({ a: null });
+
+			expect(store.get("a")).toBeNull();
+			store.set("a", 42);
+			expect(store.get("a")).toBe(42);
+		});
+
+		test("should handle empty store initialization", () => {
+			const store = new Store3();
+
+			expect(store.get("nonexistent" as never)).toBeUndefined();
+		});
+
+		test("should handle batch with no changes", () => {
+			const store = new Store3({ a: 1 });
+			let callCount = 0;
+
+			store.subscribe("a", () => {
+				callCount++;
+			});
+
+			store.batch(() => {
+				// No changes inside batch
+			});
+
+			expect(callCount).toBe(0);
+		});
+
+		test("should handle unset during batch", () => {
+			const store = new Store3({ a: 1, b: 2 });
+
+			store.batch(() => {
+				store.set("a", 10);
+				store.unset("a");
+			});
+
+			// Key was unset during batch
+			expect(store.get("a")).toBeUndefined();
+			expect("a" in store.$).toBe(false);
+		});
+
+		test("should handle subscribe to non-existent key", () => {
+			// biome-ignore lint/suspicious/noExplicitAny: Testing dynamic subscribe
+			const store = new Store3<Record<string, any>>({});
+			let called = false;
+
+			store.subscribe("future", () => {
+				called = true;
+			});
+
+			store.set("future", "value");
+			expect(called).toBe(true);
 		});
 	});
 });
