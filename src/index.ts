@@ -204,9 +204,11 @@ export default class Store3<T extends Record<string, any> = {}>
 		}
 
 		if (this.dependents.has(key)) {
-			this.dependents
-				.get(key)
-				?.forEach((dependent) => this.recompute(dependent));
+			// Copy to array to avoid infinite loop when recompute modifies the Set
+			const dependentsList = [...(this.dependents.get(key) ?? [])];
+			for (const dependent of dependentsList) {
+				this.recompute(dependent);
+			}
 		}
 
 		return this as unknown as StoreThree<T & { [key in A]: B }> & {
