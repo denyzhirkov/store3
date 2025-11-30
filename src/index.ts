@@ -45,6 +45,9 @@ export interface StoreThree<T extends Record<string, any> = {}> {
   $: $Getter<T>;
   batch(fn: () => void): void;
   computed<K>(key: string, computer: ($: $Getter<T>) => K): StoreThree<T>;
+  subscribeAll(
+    callback: (key: string, value: any, prevValue: any, $: $Getter<T>) => void
+  ): () => void;
 }
 
 const defaultItemOptions: ItemOptions = {
@@ -73,6 +76,13 @@ export default class Store3<T extends Record<string, any> = {}>
   private computedComputers = new Map<string, ($: $Getter<T>) => any>();
   private computedDependencies = new Map<string, Set<string>>();
   private dependents = new Map<string, Set<string>>();
+  private globalCallbacks = new Set<
+    (key: string, value: any, prevValue: any, $: $Getter<T>) => void
+  >();
+  private pendingGlobalCallbacks = new Map<
+    string,
+    { value: any; prevValue: any }
+  >();
 
   private createBinder<B extends unknown>(
     key: string,
@@ -154,9 +164,20 @@ export default class Store3<T extends Record<string, any> = {}>
             this.pendingCallbacks.set(callback, [value, prevValue, this.$]);
           }
         });
+        // Queue global callbacks for batch
+        if (!this.pendingGlobalCallbacks.has(key as string)) {
+          this.pendingGlobalCallbacks.set(key as string, { value, prevValue });
+        } else {
+          // Update value, keep original prevValue
+          const entry = this.pendingGlobalCallbacks.get(key as string)!;
+          entry.value = value;
+        }
       } else {
         storeRef.callbacks.forEach((callback: any) =>
           callback(value, prevValue, this.$)
+        );
+        this.globalCallbacks.forEach(callback =>
+          callback(key as string, value, prevValue, this.$)
         );
       }
     }
@@ -211,12 +232,28 @@ export default class Store3<T extends Record<string, any> = {}>
       callback(value, prevValue, $);
     });
     this.pendingCallbacks.clear();
+
+    this.pendingGlobalCallbacks.forEach(({ value, prevValue }, key) => {
+      this.globalCallbacks.forEach(callback =>
+        callback(key, value, prevValue, this.$)
+      );
+    });
+    this.pendingGlobalCallbacks.clear();
   }
 
   computed<K>(key: string, computer: ($: $Getter<T>) => K) {
     this.computedComputers.set(key, computer);
     this.recompute(key);
     return this;
+  }
+
+  subscribeAll(
+    callback: (key: string, value: any, prevValue: any, $: $Getter<T>) => void
+  ): () => void {
+    this.globalCallbacks.add(callback);
+    return () => {
+      this.globalCallbacks.delete(callback);
+    };
   }
 
   private recompute(key: string) {

@@ -313,7 +313,9 @@ describe('Store3', () => {
 
       // Change a, should NOT update dynamic (because it depends on b now)
       let called = false;
-      store.subscribe('dynamic', () => { called = true; });
+      store.subscribe('dynamic', () => {
+        called = true;
+      });
       store.set('a', 20);
       expect(called).toBe(false);
       expect(store.get('dynamic')).toBe(2);
@@ -321,6 +323,66 @@ describe('Store3', () => {
       // Change b, should update
       store.set('b', 30);
       expect(store.get('dynamic')).toBe(30);
+    });
+  });
+
+  describe('Global Subscribe', () => {
+    test('should trigger global callback for any key change', () => {
+      const store = new Store3({ a: 1, b: 2 });
+      const changes: any[] = [];
+
+      store.subscribeAll((key, value, prevValue) => {
+        changes.push({ key, value, prevValue });
+      });
+
+      store.set('a', 10);
+      expect(changes.length).toBe(1);
+      expect(changes[0]).toEqual({ key: 'a', value: 10, prevValue: 1 });
+
+      store.set('b', 20);
+      expect(changes.length).toBe(2);
+      expect(changes[1]).toEqual({ key: 'b', value: 20, prevValue: 2 });
+    });
+
+    test('should trigger global callback with batching', () => {
+      const store = new Store3({ a: 1, b: 2 });
+      const changes: any[] = [];
+
+      store.subscribeAll((key, value, prevValue) => {
+        changes.push({ key, value, prevValue });
+      });
+
+      store.batch(() => {
+        store.set('a', 10);
+        store.set('b', 20);
+        store.set('a', 30);
+      });
+
+      // Should only trigger once per key with final values
+      expect(changes.length).toBe(2);
+
+      // Order depends on map iteration, but both should be present
+      const aChange = changes.find(c => c.key === 'a');
+      const bChange = changes.find(c => c.key === 'b');
+
+      expect(aChange).toEqual({ key: 'a', value: 30, prevValue: 1 });
+      expect(bChange).toEqual({ key: 'b', value: 20, prevValue: 2 });
+    });
+
+    test('should unsubscribe from global callbacks', () => {
+      const store = new Store3({ a: 1 });
+      let callCount = 0;
+
+      const unsubscribe = store.subscribeAll(() => {
+        callCount++;
+      });
+
+      store.set('a', 10);
+      expect(callCount).toBe(1);
+
+      unsubscribe();
+      store.set('a', 20);
+      expect(callCount).toBe(1);
     });
   });
 });
